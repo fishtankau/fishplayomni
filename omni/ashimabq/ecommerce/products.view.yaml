@@ -1,0 +1,24 @@
+# Reference this view as products
+description: The Look fictitious e-commerce dataset - products table
+
+schema: ecommerce
+
+dimensions:
+  cost: {}
+  category: {}
+  name: {}
+  brand: {}
+  retail_price: {}
+  department: {}
+  sku: {}
+
+  id:
+    format: ID
+    primary_key: true
+
+  distribution_center_id:
+    format: ID
+
+measures:
+  count:
+    aggregate_type: count
