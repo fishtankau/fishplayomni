@@ -16,3 +16,7 @@ dimensions:
 measures:
   count:
     aggregate_type: count
+
+  name_count_distinct:
+    sql: ${distribution_centers.name}
+    aggregate_type: count_distinct
