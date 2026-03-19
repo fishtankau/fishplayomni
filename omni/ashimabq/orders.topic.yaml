@@ -1,0 +1,5 @@
+base_view: orders
+label: Orders
+
+joins:
+  users: {}
