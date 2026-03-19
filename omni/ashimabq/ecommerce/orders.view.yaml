@@ -22,3 +22,7 @@ dimensions:
 measures:
   count:
     aggregate_type: count
+
+  sum_test:
+    sql: "1"
+    aggregate_type: sum
