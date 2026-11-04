@@ -1,0 +1,171 @@
+# Reference this view as home_loan_applications
+label: Home Loan Applications
+description: Synthetic home loan applications for the CBA workflow demo. One row
+  per application. Not real customer data.
+
+sql: |
+  WITH base AS (
+    SELECT
+      n,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('c', CAST(n AS STRING))), 100)) AS r_channel,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('s', CAST(n AS STRING))), 100)) AS r_stage,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('a', CAST(n AS STRING))), 1000)) AS r_amount,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('i', CAST(n AS STRING))), 100)) AS r_income,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('d', CAST(n AS STRING))), 100)) AS r_docs,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('t', CAST(n AS STRING))), 100)) AS r_time,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('b', CAST(n AS STRING))), 40)) AS r_broker,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('x', CAST(n AS STRING))), 100)) AS r_dti,
+      ABS(MOD(FARM_FINGERPRINT(CONCAT('g', CAST(n AS STRING))), 100)) AS r_state
+    FROM UNNEST(GENERATE_ARRAY(1, 1500)) AS n
+  ),
+  shaped AS (
+    SELECT
+      *,
+      CASE WHEN r_channel < 49 THEN 'Broker' WHEN r_channel < 80 THEN 'Branch' ELSE 'Digital' END AS channel,
+      CASE
+        WHEN r_stage < 18 THEN 'Awaiting documents'
+        WHEN r_stage < 30 THEN 'Ready for assessment'
+        WHEN r_stage < 40 THEN 'In assessment'
+        WHEN r_stage < 46 THEN 'Credit review'
+        WHEN r_stage < 58 THEN 'Approved'
+        WHEN r_stage < 88 THEN 'Settled'
+        WHEN r_stage < 95 THEN 'Declined'
+        ELSE 'Withdrawn'
+      END AS stage
+    FROM base
+  )
+  SELECT
+    CONCAT('HL-', CAST(1000 + n AS STRING)) AS application_id,
+    DATE_SUB(DATE '2026-11-04', INTERVAL MOD(n * 7, 120) DAY) AS lodged_date,
+    channel,
+    IF(channel = 'Broker', CONCAT('Broker ', CAST(100 + r_broker AS STRING)), NULL) AS broker_id,
+    stage,
+    CASE
+      WHEN stage IN ('Awaiting documents', 'Ready for assessment') THEN 'Intake'
+      WHEN stage IN ('In assessment', 'Credit review') THEN 'Assessment'
+      WHEN stage IN ('Approved', 'Settled') THEN 'Approved'
+      ELSE 'Closed without loan'
+    END AS stage_group,
+    250000 + r_amount * 1000 AS loan_amount,
+    IF(r_income < 22, 'Self-employed', 'PAYG') AS income_type,
+    ROUND(3.0 + r_dti * 0.04, 1) AS debt_to_income,
+    CASE
+      WHEN r_state < 32 THEN 'NSW'
+      WHEN r_state < 58 THEN 'VIC'
+      WHEN r_state < 78 THEN 'QLD'
+      WHEN r_state < 90 THEN 'WA'
+      ELSE 'SA'
+    END AS state,
+    CONCAT('Assessor ', CAST(1 + MOD(n, 25) AS STRING)) AS assessor,
+    6 AS documents_required,
+    IF(stage = 'Awaiting documents', 6 - (1 + MOD(r_docs, 3)), 6) AS documents_received,
+    IF(stage = 'Awaiting documents', 1 + MOD(r_docs, 3), 0) AS documents_missing,
+    IF(stage = 'Awaiting documents',
+       1 + MOD(r_time, 9) + IF(channel = 'Broker', 2, 0),
+       1 + MOD(r_time, 4)) AS days_in_stage,
+    GREATEST(0, MOD(r_docs, 4) - IF(channel = 'Broker', 0, 1)) AS rework_count,
+    IF(stage IN ('Approved', 'Settled', 'Declined'),
+       2 + MOD(r_time, 12) + IF(r_income < 22, 4, 0) + IF(channel = 'Broker', 2, 0),
+       NULL) AS days_to_decision,
+    (r_income < 22 OR r_dti > 75) AS needs_judgement
+  FROM shaped
+
+dimensions:
+  application_id:
+    label: Application ID
+    primary_key: true
+
+  lodged_date:
+    label: Lodged Date
+    description: Date the application was lodged.
+
+  channel:
+    description: How the application arrived. Broker, Branch or Digital.
+
+  broker_id:
+    label: Broker
+    description: Broker who lodged the application. Empty for Branch and Digital.
+
+  stage:
+    description: Current workflow stage. Awaiting documents, Ready for assessment,
+      In assessment, Credit review, Approved, Settled, Declined or Withdrawn.
+
+  stage_group:
+    description: Stage rolled up into Intake, Assessment, Approved or Closed without loan.
+
+  loan_amount:
+    description: Requested loan amount in AUD.
+
+  income_type:
+    description: PAYG or Self-employed.
+
+  debt_to_income:
+    label: Debt to Income
+    description: Total debt divided by gross income. Policy attention above 6.
+
+  state:
+    description: Australian state of the property.
+
+  assessor:
+    description: Credit assessor who owns the file.
+
+  documents_required:
+    hidden: true
+
+  documents_received:
+    description: Documents received so far, out of 6 required.
+
+  documents_missing:
+    description: Documents still outstanding. Above zero only while Awaiting documents.
+
+  days_in_stage:
+    description: Days the application has sat in its current stage.
+
+  rework_count:
+    description: Number of times the file went back for more information or corrections.
+
+  days_to_decision:
+    description: Days from lodgement to a credit decision. Only for Approved,
+      Settled or Declined.
+
+  needs_judgement:
+    description: True when the file needs an assessor's judgement (self-employed
+      income or debt to income above 6).
+
+measures:
+  count:
+    label: Applications
+    aggregate_type: count
+
+  waiting_on_documents:
+    label: Applications Waiting on Documents
+    aggregate_type: count
+    filters:
+      stage:
+        is: Awaiting documents
+
+  total_loan_amount:
+    sql: ${home_loan_applications.loan_amount}
+    aggregate_type: sum
+
+  average_days_in_stage:
+    sql: ${home_loan_applications.days_in_stage}
+    aggregate_type: average
+
+  average_days_to_decision:
+    sql: ${home_loan_applications.days_to_decision}
+    aggregate_type: average
+
+  total_documents_missing:
+    sql: ${home_loan_applications.documents_missing}
+    aggregate_type: sum
+
+  total_rework:
+    sql: ${home_loan_applications.rework_count}
+    label: Total Rework Loops
+    aggregate_type: sum
+
+  average_rework:
+    sql: ${home_loan_applications.rework_count}
+    label: Average Rework Loops
+    aggregate_type: average

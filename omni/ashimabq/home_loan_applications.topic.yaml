@@ -1,0 +1,17 @@
+# Synthetic home loan applications for the CBA workflow demo
+label: Home Loan Applications
+description: One row per home loan application, with its workflow stage,
+  channel, documents and time in stage. Synthetic demo data.
+
+joins: {}
+
+ai_context: |-
+  This topic covers home loan applications moving through a bank's application workflow.
+  Each row is one application. Use the Applications measure to count them.
+  Workflow stages in order: Awaiting documents, Ready for assessment, In assessment, Credit review, then Approved, Settled, Declined or Withdrawn.
+  "Waiting on documents", "stuck on documents" or "missing paperwork" means stage = Awaiting documents; use the Applications Waiting on Documents measure.
+  "Where applications wait" or "bottlenecks" means compare Average Days in Stage and Applications by stage.
+  "Rework" means rework_count, the number of times a file went back for more information.
+  Channels are Broker, Branch and Digital. Broker questions should group by Broker.
+  "Needs judgement" means self-employed income or debt to income above 6, which an assessor must review.
+  Loan amounts are in AUD. Keep answers short and lead with the number.
